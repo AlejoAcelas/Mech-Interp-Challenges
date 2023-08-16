@@ -1,0 +1,72 @@
+version: 0
+title: Capture The Flag Mech Interp Challenges
+description: Find hidden information from Transformer models trained on toy tasks
+image: wheat.jpg
+registration_auto_approve: True  # do not require approval from admin to join the comp
+
+terms: pages/terms.md
+pages:
+  - title: Participation
+    file: pages/participate.md
+  - title: Seed
+    file: pages/seed.md
+  - title: Timeline
+    file: pages/timeline.md
+
+tasks:
+  - index: 0
+    name: OOD Generalization - Binary Addition
+    description: '...'
+    input_data: models/
+    reference_data: dataset/
+    # ingestion_program: ingestion_program/
+    scoring_program: scoring/
+  - index: 1
+    name: OOD Generalization - Sorting Classification
+    description: '...'
+    input_data: models/
+    reference_data: dataset/
+    scoring_program: scoring/
+  - index: 2
+    name: Hidden Capabilities - ...
+    description: '...'
+    input_data: models/
+    reference_data: dataset/
+    scoring_program: scoring/
+
+solutions:
+  - index: 0
+    tasks:
+    - 0
+    - 1
+    path: solution/
+
+
+phases:
+  - name: Development Phase
+    description: 'Take a stab at the challenges'
+    start: 8-28-2023
+    end: 1-31-2024
+    tasks:
+      - 0
+      - 1
+      - 2
+
+leaderboards:
+  - title: Results
+    key: main
+    submission_rule: "Add_And_Delete_Multiple"
+    columns:
+      # Scores are ordered lexicographically by the keys. This task is the most important for the scoreboard
+      - title: OOD - Binary Addition 
+        key: ood_binary_addition
+        index: 0
+        sorting: desc
+      - title: OOD - Sorting Classification
+        key: ood_sorting_classification
+        index: 1
+        sorting: desc
+      - title: Hidden Capabilities - ...
+        key: hidden_capabilities_...
+        index: 2
+        sorting: desc
