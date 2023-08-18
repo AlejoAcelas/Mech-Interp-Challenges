@@ -52,6 +52,7 @@ model = create_model(d_vocab=7,
 
 state_dict = torch.load("models/binaryadd_ood_1000_reduced.pt")
 model.load_state_dict(state_dict)
+pos_embed = torch.load("models/binaryadd_ood_pos_embed.pt")
 
 # %%
 
@@ -65,6 +66,7 @@ preds = torch.argmax(pred_logits, dim=-1)
 acc = (preds == target.squeeze()).float().mean()
 
 print(f"The model has an accuracy of {100*acc:.1f}% on this sample")
+print(f"The positional embeddings have shape {pos_embed.shape}")
 
 # %% Palindrome model
 
