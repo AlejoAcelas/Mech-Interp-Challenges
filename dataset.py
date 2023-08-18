@@ -62,7 +62,7 @@ class BaseDataset(Dataset):
     def to_str_toks(self, toks: Int[Tensor, 'batch pos'], target: bool = False) -> List[List[str]]:
         if target:
             # Detect token constants for the target as those attributes that are all uppercase and end with OUT
-            str_tok_map = {self.__getattribute__(x): x[-4:] for x in dir(self) if x.isupper() and x.endswith('_OUT')}
+            str_tok_map = {self.__getattribute__(x): x[:-4] for x in dir(self) if x.isupper() and x.endswith('_OUT')}
         else:
             # Detect token constants for the input as those attributes that are all uppercase and don't end with OUT
             str_tok_map = {self.__getattribute__(x): x for x in dir(self) if x.isupper() and not x.endswith('_OUT')}
@@ -91,7 +91,7 @@ class BaseDataset(Dataset):
 class BinaryAdditionDataset(BaseDataset):
     """Data for model that adds two binary numbers. All numbers are flipped such that the leftmost position is the least significant bit"""
 
-    def __init__(self, size: int, d_vocab: int, seq_len: int, n_ctx: int, d_vocab_out: int = 3, seed: int = 42, switch = False, **kwargs):
+    def __init__(self, size: int, d_vocab: int, seq_len: int, n_ctx: int, d_vocab_out: int = 3, seed: int = 42, switch = True, **kwargs):
         super().__init__(size, d_vocab, seq_len, n_ctx, d_vocab_out, seed)
         # I use seq_len as the context of the shortest addend and n_ctx as the context of the longest addend
         # Sum results are one position longer than the addend
@@ -113,7 +113,7 @@ class BinaryAdditionDataset(BaseDataset):
 
         if size is not None: # If size is None you can use this class as a data generator
             addend_len_range = self.max_addend_len - self.min_addend_len + 1
-            len_weights = 2**torch.arange(addend_len_range) # Produce more samples of the longer addends
+            len_weights = (1.6)**torch.arange(addend_len_range) # Produce more samples of the longer addends
             len_weights_switch = len_weights.clone()
             len_weights_switch[:-2] = 0 # Producing samples around the switch point is only possible for addends of lenght max_addend_len - 2 or more
             
@@ -131,12 +131,13 @@ class BinaryAdditionDataset(BaseDataset):
         """Generate binary sequences that add to a number close to the switch point"""
         error = int(2**(addend_len - 3)) # Maximum distance of the sum to the switch point
         sum_decimal = self.switch_point + torch.randint(-error, error, (batch,)) # Sample uniformly within the error range
-        sum_decimal = sum_decimal.clamp(0, 2**addend_len - 1) # Clamp between the values representable by the sum of two addends of length addend_len
         
         a_decimal = np.random.randint(0, sum_decimal + 1, (batch,)) # Sample uniformly from the possible values of the first addend
         a_decimal = torch.from_numpy(a_decimal)
         b_decimal = sum_decimal - a_decimal # This doesn't always generate a number representable in addend_len bits, but I only care that it does it frequently enough
-        return self.dec_to_bin(a_decimal, addend_len), self.dec_to_bin(b_decimal, addend_len)
+        a_bin = self.dec_to_bin(a_decimal.clamp(0, 2**addend_len-1), addend_len)
+        b_bin = self.dec_to_bin(b_decimal.clamp(0, 2**addend_len-1), addend_len)
+        return a_bin, b_bin
     
     def add_binary(self, a: Int[Tensor, 'batch add'], b: Int[Tensor, 'batch add'], 
                    carry_depth: int = 3) -> Int[Tensor, 'batch add_plus_one']:
@@ -254,31 +255,10 @@ class BinaryAdditionDataset(BaseDataset):
         out = a.unsqueeze(-1).bitwise_and(mask).ne(0).long()
         return a.unsqueeze(-1).bitwise_and(mask).ne(0).long()
 
-data = BinaryAdditionDataset(size=10, d_vocab=7, d_vocab_out=3, n_ctx=25, seq_len=13, seed=42)
+# data = BinaryAdditionDataset(size=10, d_vocab=7, d_vocab_out=3, n_ctx=25, seq_len=13, seed=42)
+# data.str_toks[:10]
+# data.str_target[:10]
 # print(data.toks)
-# a, b = data.toks_to_addends(data.toks)
-# print(a)
-# print(b)
-# print(data.toks.shape)
-
-# a, b = data.gen_addends_around_switch(10, 5)
-# print('Switch point', data.switch_point)
-# print('a', a)
-# print('a dec', data.bin_to_dec(a))
-# print('b', b)
-# print('b dec', data.bin_to_dec(b))
-
-# switch_sum = data.compute_sum_with_switch(a, b, switch=True)
-# print(data.bin_to_dec(data.add_binary(a, b)))
-# print(data.bin_to_dec(switch_sum))
-
-# print('num toks for target', torch.unique((data.toks == data.END).sum(-1)))
-# print('target shape', data.target.shape)
-# print('distribution of input tokens', torch.bincount(data.toks.flatten()))
-# print('distribution of target tokens', torch.bincount(data.target.flatten()))
-
-# print(data.str_toks)
-# print(data.str_target)
 
 # %%
 
@@ -286,7 +266,7 @@ class KeyValDataset(BaseDataset):
     """Data for model that maps long sequences (keys) to sequences half of their length (values) with a function that varies
     depending on whether the key contains certain patters. Each pattern ocurrs around 1e4 times in the space of possible keys"""
 
-    def __init__(self, size: int, d_vocab: int, seq_len: int, n_ctx: int, d_vocab_out: int = 2, seed: int = 42,
+    def __init__(self, size: int, d_vocab: int, seq_len: int, n_ctx: int, d_vocab_out: int, seed: int = 42,
                  gen_fns_select: list = [0, 1, 2, 3, 4, 5], # A hacky way to select which functions to use
                  **kwargs):
         # Store the constants of the dataset
@@ -322,13 +302,16 @@ class KeyValDataset(BaseDataset):
         if size is not None: # If size is None you can use this class as a data generator
             train_gen_fns = self.gen_fns + [self.gen_all_repeated_keys] # I add repeated keys because the model was failing at them
             batch = ceil(size / len(train_gen_fns))
-            pos_class_batch = ceil(batch / 5)
-            neg_class_batch = ceil(4 * batch / 5)
+            pos_class_batch = ceil(2 * batch / 3)
+            neg_class_batch = ceil(batch / 3)
             all_keys = torch.cat([g(pos_class_batch) for g in train_gen_fns] + 
                                   [self.flip_keys_gen(neg_class_batch, g) for g in train_gen_fns])
             self.keys = all_keys[torch.randperm(all_keys.shape[0])[:size]]
             self.toks = self.cat_values_pad(self.keys)
             self.target = self.compute_target(self.keys)
+
+            self.str_toks = self.to_str_toks(self.toks)
+            self.str_target = self.to_str_toks(self.target, target=True)
 
         self.create_tok_methods(self.cat_values_pad)
 
@@ -471,7 +454,9 @@ class KeyValDataset(BaseDataset):
         keys = einops.repeat(key_value, 'b -> b k', k=self.keys_len).clone()
         return keys
 
-# data = KeyValDataset(size=100, d_vocab=13, d_vocab_out=10, n_ctx=19, seq_len=18, seed=42)
+data = KeyValDataset(size=10, d_vocab=13, d_vocab_out=10, n_ctx=19, seq_len=18, seed=42)
+# data.str_toks
+data.str_target
 # print(data.toks)
 # print(data.map_keys(data.gen_palindrome_keys(2), data.gen_palindrome_keys, reverse=True))
 # # data.compute_target_group(data.gen_palindrome_keys(2))
@@ -486,6 +471,57 @@ class KeyValDataset(BaseDataset):
 # data.compute_target_group(data.gen_triplet_keys(2))
 
 # torch.unique(data.compute_target_group(data.keys))
+# %%
+
+class PalindromeDataset(BaseDataset):
+    """Data for model predicts whether a sequence is palidromic or not"""
+
+    def __init__(self, size: int, d_vocab: int, seq_len: int, n_ctx: int, d_vocab_out: int = 2, seed: int = 42, **kwargs):
+        super().__init__(size, d_vocab, seq_len, n_ctx, d_vocab_out, seed)
+        assert size % 2 == 0
+        assert seq_len + 2 == n_ctx, "n_ctx must be equal to seq_len + 2"
+        self.d_vocab_normal = d_vocab - 3
+        self.half_length = seq_len // 2
+
+        if size is not None: # If size is None you can use this class as a data generator
+            self.seqs = torch.cat([
+                self.gen_not_palindrome_seqs(size//4),
+                self.gen_almost_palindrome(size//4, num_flips=1),
+                self.gen_palindrome_seqs(size - 2 * (size//4)),
+            ])
+            self.toks = self.cat_start_end_toks(self.seqs)
+            self.target = self.compute_target(self.toks)
+
+    def compute_target(self, toks: Int[Tensor, 'batch pos']) -> Bool[Tensor, 'pos label=1']:
+        seqs = toks[:, 1:-1]
+        first_half_seq = seqs[:, :self.half_length]
+        second_half_seq = seqs[:, self.half_length:]
+        return (first_half_seq == second_half_seq.flip(-1)).all(-1).long().unsqueeze(-1)
+    
+    def gen_palindrome_seqs(self, batch: int) -> Int[Tensor, 'batch seq']:
+        half_seqs = torch.randint(low=0, high=self.d_vocab_normal, size=(batch, self.half_length))
+        pal_seqs = torch.concat([
+            half_seqs,
+            half_seqs.flip(-1)
+        ], dim=1)
+        return pal_seqs
+
+    def gen_not_palindrome_seqs(self, batch: int) -> Int[Tensor, 'batch seq']:
+        seqs = torch.randint(low=0, high=self.d_vocab_normal, size=(batch, self.seq_len))
+        return seqs
+    
+    def gen_almost_palindrome(self, batch: int, num_flips: int) -> Int[Tensor, 'batch seq']:
+        seqs = self.gen_palindrome_seqs(batch)
+        flip_pos = torch.randint(0, self.seq_len, (batch, num_flips))
+        flip_val = torch.randint(0, self.d_vocab_normal, (batch, num_flips))
+        seqs[torch.arange(batch)[:, None], flip_pos] = flip_val
+        return seqs
+
+# data = PalindromeDataset(size=10, d_vocab=10, d_vocab_out=2, n_ctx=6, seq_len=4)
+# print(data.toks)
+# print(data.target)
+
+
 # %%
 
 class SortedDataset(BaseDataset):
@@ -545,32 +581,26 @@ class SortedDatasetExtended(BaseDataset):
         
         # seq_len for this model is the minimum length of the non-PAD sequence of tokens
         # Within a single batch the padding will start at random from seq_len to n_ctx  
-        assert 2*seq_len + 2 == n_ctx, "n_ctx must be equal to 2*seq_len + 2"
+        assert 2*seq_len + 3 == n_ctx, "n_ctx must be equal to 2*seq_len + 2"
         assert d_vocab_out == d_vocab - 2, "d_vocab_out must be equal to d_vocab - 2"
         self.SORTED_OUT = d_vocab_out - 1
         self.d_vocab_normal = d_vocab - 3
 
         if size is not None: # If size is None you can use this class as a data generator
             gen_list = [
-                *[partial(self.gen_almost_sorted_seqs, num_flips=n, descending=d) for n, d in product(range(1, seq_len//2), [True, False])],
+                *[partial(self.gen_almost_sorted_seqs, num_flips=n, descending=d) 
+                  for n, d in product(range(1, seq_len//2 + 1), [True, False])],
                 self.gen_sorted_seqs,
+                partial(self.gen_sorted_seqs, descending=True),
                 self.gen_unsorted_seqs,
                 ]
-            batch_padded = ceil(size / (5 * len(gen_list)))
-            pad_seqs = torch.cat([self.bind_seqs(batch_padded, g, self.gen_pad_seqs) 
-                                       for g in gen_list])
-            self.pad_toks = self.cat_start_end_toks(pad_seqs, end_tok=self.PAD)
-
+        
             gen_pairs = list(product(gen_list, repeat=2))
-            batch_full = ceil(4 * size / (5 * len(gen_pairs)))
-            full_seqs = torch.cat([self.bind_seqs(batch_full, g1, g2) for g1, g2 in gen_pairs])
-            self.full_toks = self.cat_start_end_toks(full_seqs)
+            mini_batch = ceil(size / len(gen_pairs))
+            all_toks = torch.cat([self.bind_seqs(mini_batch, g1, g2) for g1, g2 in gen_pairs])
 
-            all_seqs = torch.cat([pad_seqs, full_seqs])
-            selected_seqs_idx = torch.randperm(all_seqs.shape[0])[:size]
-            self.seqs = all_seqs[selected_seqs_idx]
-
-            self.toks = torch.cat([self.pad_toks, self.full_toks])[selected_seqs_idx]
+            selected_toks_idx = torch.randperm(all_toks.shape[0])[:size]
+            self.toks = all_toks[selected_toks_idx]
             self.target = self.compute_target(self.toks)
 
             self.str_toks = self.to_str_toks(self.toks)
@@ -581,9 +611,8 @@ class SortedDatasetExtended(BaseDataset):
     def compute_target(self, toks: Int[Tensor, 'batch pos']) -> Bool[Tensor, 'batch label=1']:
         batch = toks.shape[0]
         first_half = toks[:, 1:self.seq_len+1]
-        second_half = toks[:, self.seq_len+1:-1]
-        is_second_half_pad = second_half[:, 0] == self.END
-
+        second_half = toks[:, self.seq_len+2:-1]
+        
         sorted_first_half = (first_half[:, 1:] >= first_half[:, :-1])
         first_pos_unsorted = sorted_first_half.long().argmin(dim=1) + 1 # First position where the first half is not sorted
         first_tok_unsorted = first_half[torch.arange(batch), first_pos_unsorted]
@@ -599,8 +628,7 @@ class SortedDatasetExtended(BaseDataset):
                                         (second_tok_unsorted + 1) % self.d_vocab_out,
                                         (second_tok_unsorted - 1) % self.d_vocab_out)
         
-        labels = torch.where(is_second_half_pad, first_tok_unsorted, label_second_half)
-        return labels.unsqueeze(-1)
+        return torch.stack([first_tok_unsorted, label_second_half], dim=1)
 
     def gen_unsorted_seqs(self, batch: int,) -> Int[Tensor, 'batch seq']:
         """This method doesn't ensure that the sequences are unsorted. 
@@ -618,26 +646,23 @@ class SortedDatasetExtended(BaseDataset):
         flip_val = torch.randint(0, self.d_vocab_normal, (batch, num_flips))
         seqs[torch.arange(batch)[:, None], flip_pos] = flip_val
         return seqs
-    
-    def gen_pad_seqs(self, batch: int):
-        """A padded sequence for the """
-        seqs = torch.full((batch, self.seq_len), self.PAD)
-        seqs[:, 0] = self.END
-        return seqs
 
     def bind_seqs(self, batch: int, gen_seq1: Callable, gen_seq2: Callable) -> Int[Tensor, 'batch pos']:
         """Concatenates sequences generated with the different methods horizontally"""
+        toks = torch.zeros((batch, self.n_ctx), dtype=torch.long)
         seq1 = gen_seq1(batch)
         seq2 = gen_seq2(batch)
-        return torch.cat([seq1, seq2], dim=1)
-        
-# dataset = SortedDatasetExtended(size=10, d_vocab=23, d_vocab_out=21, n_ctx=14, seq_len=6, seed=20)
-# print(dataset.toks[:10])
-# print(dataset.target[:10].squeeze())
 
-# # print(dataset.pad_toks[:10])
-# print(dataset.full_toks[:10])
-# print(dataset.is_sorted(dataset.full_toks[:10]))
+        toks[:, 0] = self.START
+        toks[:, 1:self.seq_len+1] = seq1
+        toks[:, self.seq_len+1] = self.END
+        toks[:, self.seq_len+2:-1] = seq2
+        toks[:, -1] = self.END
+        return toks
+        
+# dataset = SortedDatasetExtended(size=10, d_vocab=23, d_vocab_out=21, n_ctx=15, seq_len=6, seed=20)
+# print(dataset.toks[:10])
+# print(dataset.target[:10])
 
 # %%
 

@@ -24,7 +24,7 @@ class TrainArgs:
     n_ctx: int
     seq_len: int
     num_end_pos: int
-    seed: int
+    base_seed: int
     # Training args
     trainset_size: int
     valset_size: int
@@ -73,12 +73,14 @@ class Trainer:
         return selected_logits, target
 
     def train_dataloader(self, seed: int):
-        trainset = self.args.dataset(size=self.args.trainset_size, **self.args.__dict__)
+        trainset = self.args.dataset(size=self.args.trainset_size, seed=seed, d_vocab=self.args.d_vocab, d_vocab_out=self.args.d_vocab_out,
+                                     n_ctx=self.args.n_ctx, seq_len=self.args.seq_len)
         self.args.end_token = trainset.END
         return DataLoader(trainset, batch_size=self.args.batch_size, shuffle=True)
     
     def val_dataloader(self, seed: int):
-        valset = self.args.dataset(size=self.args.valset_size, **self.args.__dict__)
+        valset = self.args.dataset(size=self.args.valset_size, seed=seed, d_vocab=self.args.d_vocab, d_vocab_out=self.args.d_vocab_out,
+                                   n_ctx=self.args.n_ctx, seq_len=self.args.seq_len)
         self.args.end_token = valset.END
         return DataLoader(valset, batch_size=self.args.batch_size, shuffle=True)
     
@@ -97,11 +99,11 @@ def train(args: TrainArgs, model: Optional[HookedTransformer] = None):
 
     trainer = Trainer(args, model=model)
     optimizer, scheduler = trainer.configure_optimizers()
-    val_dataloader = trainer.val_dataloader(seed=args.seed+1)
+    val_dataloader = trainer.val_dataloader(seed=args.base_seed - 1)
 
     for epoch in range(args.epochs):
         
-        train_dataloader = trainer.train_dataloader(seed=args.seed) # For greater variety, I produce a new trainset each epoch
+        train_dataloader = trainer.train_dataloader(seed=args.base_seed + epoch) # For greater variety, I produce a new trainset each epoch
         progress_bar = tqdm(total=args.trainset_size//args.batch_size)
 
         # Training
@@ -133,7 +135,7 @@ def train(args: TrainArgs, model: Optional[HookedTransformer] = None):
 
 def get_missed_data(args: TrainArgs, model: HookedTransformer):
     trainer = Trainer(args, model)
-    val_dataloader = trainer.val_dataloader(seed=args.seed+1)
+    val_dataloader = trainer.val_dataloader(seed=args.base_seed+1)
     missed_toks, missed_target, missed_logits = [], [], []
     with torch.inference_mode():
         for toks, target in val_dataloader:

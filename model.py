@@ -9,7 +9,7 @@ def create_model(
     d_vocab_out: int,
     n_ctx: int,
     n_layers: int,
-    seed: int,
+    base_seed: int,
     d_model: int,
     d_head: int,
     n_heads: int,
@@ -19,8 +19,8 @@ def create_model(
     **kwargs # ignore other kwargs
 ) -> HookedTransformer:
 
-    t.manual_seed(seed)
-    np.random.seed(seed)
+    t.manual_seed(base_seed)
+    np.random.seed(base_seed)
 
     attn_only = (d_mlp is None)
 

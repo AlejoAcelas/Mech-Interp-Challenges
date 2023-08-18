@@ -187,11 +187,9 @@ class BinaryAdditionDataset(BaseDataset):
         super().__init__(size, d_vocab, n_ctx, d_vocab_out, seed)
         assert self.d_vocab == 7, "There must be 7 tokens for the input vocabulary: 0, 1, START, END, PAD, EQUALS, PLUS"
         assert d_vocab_out == 3, "There are only 3 possible outputs: 0, 1, and BLANK"
-        
-        two_addend_len = (n_ctx - 6) # Number of tokens dedicated to the two addends
-        assert two_addend_len % 2 == 0, "The number of tokens dedicated to the two addends must be even"
-        self.max_addend_len = two_addend_len // 2
-        self.target_len = 3 # The length of the target is 8. It corresponds to the largest sum result of the original model
+    
+        self.max_addend_len = (n_ctx - 4) // 3
+        self.target_len = self.max_addend_len + 1 # The length of the target is 8. It corresponds to the largest sum result of the original model
         # Sum results are one position longer than the addend
 
         self.EQUALS = d_vocab - 4
@@ -210,8 +208,8 @@ class BinaryAdditionDataset(BaseDataset):
     
     def add_binary(self, a: Int[Tensor, 'batch add'], b: Int[Tensor, 'batch add'], 
                    carry_depth: int = 3) -> Int[Tensor, 'batch add_plus_one']:
-        """Adds two flipped binary numbers and flips the result"""
-        assert a.shape == b.shape, "a and b must have the same shape"
+        """Adds two flipped binary numbers with limited carry depth"""
+        a.shape == b.shape, "a and b must have the same shape"
         batch, addend_len = a.shape
         c = torch.zeros(batch, addend_len + 1).long() # [batch, add_len + 1]
         c[:, :addend_len] = a + b
@@ -222,12 +220,13 @@ class BinaryAdditionDataset(BaseDataset):
             c[:, 1:] += carry
             carry = (c[:, :-1] > 1).long()
 
-        return c
+        return c % 2
     
     def compute_target(self, toks: Int[Tensor, 'batch pos']) -> Int[Tensor, 'batch target']:
         """Computes the target for a given sequence of tokens"""
+        batch = toks.shape[0]
         a, b = self.toks_to_addends(toks)
-        c = self.add_binary(a, b)
+        c = [self.add_binary(a_i.unsqueeze(0), b_i.unsqueeze(0)) for a_i, b_i in zip(a, b)] # Pass addends one by one as they may have different lengths
         return self.sum_to_target(c)
 
     def gen_toks_and_target(self, batch: int) -> Int[Tensor, 'batch pos']:
@@ -272,10 +271,13 @@ class BinaryAdditionDataset(BaseDataset):
 
         return toks
 
-    def sum_to_target(self, c: Int[Tensor, 'batch sum']) -> Int[Tensor, 'batch target']:
-        batch, sum_len = c.shape
+    def sum_to_target(self, c: List[Int[Tensor, '...']]) -> Int[Tensor, 'batch target']:
+        batch = len(c)
         target = self.BLANK_OUT * torch.ones((batch, self.target_len), dtype=torch.long)
-        target[:, :sum_len] = c
+        for i, c_i in enumerate(c):
+            c_i = c_i.squeeze(0)
+            sum_len = c_i.shape[0]
+            target[i, :sum_len] = c_i
         return target
 
     def bin_to_dec(self, a: Int[Tensor, 'batch binary']) -> Int[Tensor, 'batch']:
@@ -290,7 +292,49 @@ class BinaryAdditionDataset(BaseDataset):
         return a.unsqueeze(-1).bitwise_and(mask).ne(0).long()
 
 
-data = BinaryAdditionDataset(size=10)
+# data = BinaryAdditionDataset(size=10, n_ctx=25)
+# print(data.toks)
+# print(data.compute_target(data.toks))
+
+# %%
+
+class PalindromeDataset(BaseDataset):
+    """Data for model predicts whether a sequence is palidromic or not"""
+
+    def __init__(self, size: int, d_vocab: int = 34, n_ctx: int = 22, d_vocab_out: int = 2, seed: int = 42, **kwargs):
+        super().__init__(size, d_vocab, n_ctx, d_vocab_out, seed)
+        assert size % 2 == 0
+        self.seq_len = n_ctx - 2
+        self.d_vocab_normal = d_vocab - 3
+        self.half_length = self.seq_len // 2
+
+        if size is not None: # If size is None you can use this class as a data generator
+            self.seqs = torch.cat([
+                self.gen_palindrome_seqs(size//2),
+                self.gen_not_palindrome_seqs(size - size//2),
+            ])
+            self.toks = self.cat_start_end_toks(self.seqs)
+            self.target = self.compute_target(self.toks)
+
+    def compute_target(self, toks: Int[Tensor, 'batch pos']) -> Bool[Tensor, 'pos label=1']:
+        seqs = toks[:, 1:-1]
+        first_half_seq = seqs[:, :self.half_length]
+        second_half_seq = seqs[:, self.half_length:]
+        return (first_half_seq == second_half_seq.flip(-1)).all(-1).long().unsqueeze(-1)
+    
+    def gen_palindrome_seqs(self, batch: int) -> Int[Tensor, 'batch seq']:
+        half_seqs = torch.randint(low=0, high=self.d_vocab_normal, size=(batch, self.half_length))
+        pal_seqs = torch.concat([
+            half_seqs,
+            half_seqs.flip(-1)
+        ], dim=1)
+        return pal_seqs
+
+    def gen_not_palindrome_seqs(self, batch: int) -> Int[Tensor, 'batch seq']:
+        seqs = torch.randint(low=0, high=self.d_vocab_normal, size=(batch, self.seq_len))
+        return seqs
+    
+# data = PalindromeDataset(size=10)
 # print(data.toks)
 # print(data.target)
 
