@@ -94,3 +94,5 @@ preds = torch.argmax(logits[:, [-1]], dim=-1)
 acc = (preds == target.squeeze()).float().mean()
 
 print(f"The model has an accuracy of {100*acc:.1f}% on this sample")
+
+# %%

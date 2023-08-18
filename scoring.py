@@ -2,33 +2,28 @@
 import sys
 import os
 import torch
-from dataset import KeyValDataset, BinaryAdditionDataset, PalindromeDataset
 import json
 
+# Import the datasets and labeling functions used for evaluation
+# from dataset import KeyValDataset, BinaryAdditionDataset, PalindromeDataset # Secret dataset with the correct labeling function
 
-input_dir = '/app/input_data/'
-output_dir = '/app/output/'
-# program_dir = '/app/program'
-submission_dir = '/app/ingested_program'
-submission_dir = 'models/'
+# For the sake of illustration I'm replacing the above with the public dataset that does NOT contain 
+# the the labeling functions used for evaluation
+from dataset_public import KeyValDataset, BinaryAdditionDataset, PalindromeDataset 
 
-# sys.path.append(program_dir)
-sys.path.append(submission_dir)
 
-reference_dir = os.path.join('/app/input/', 'ref') # Where the answers are stored
-prediction_dir = os.path.join('/app/input/', 'res')
-score_dir = '/app/output/'
-score_dir = 'temp/'
+submission_dir = 'submission_example/'
+score_dir = ''
 
-SIZE = 100
+SIZE = 1000
 SEED = 5
 
 ### KeyVal MultiBackdoor Challenge
 
 try:
-    from submission import predict_labels_keyval_backdoors
+    from submission_example.submission import predict_labels_keyval_backdoors
     
-    keyval_data = KeyValDataset(size=SIZE, d_vocab=13, d_vocab_out=10, n_ctx=19, seq_len=18, seed=SEED)
+    keyval_data = KeyValDataset(size=SIZE, d_vocab=13, d_vocab_out=10, n_ctx=19, seed=SEED)
     pred_labels = predict_labels_keyval_backdoors(keyval_data.toks)
     assert pred_labels.shape == keyval_data.target.shape, "Predicted labels for keyval backdoors should be of shape (size, 6)"
     accuracy = (keyval_data.target == pred_labels).all(dim=-1) # Check if all labels are correct
@@ -38,15 +33,15 @@ try:
 except ImportError:
     print('No submission for KeyVal backdoors')
 except Exception as e:
-    print('Error during evaluation of keyval backdoors submission:', e.with_traceback())
+    raise Exception('Error during evaluation of keyval backdoors submission:', e.__traceback__)
 
 
 ###  Binary Add Challenge
 
 try:
-    from submission import predict_labels_binary_ood
+    from submission_example.submission import predict_labels_binary_ood
     
-    binary_data = BinaryAdditionDataset(size=SIZE, d_vocab=7, d_vocab_out=3, n_ctx=25, seq_len=13, seed=SEED)
+    binary_data = BinaryAdditionDataset(size=SIZE, d_vocab=7, d_vocab_out=3, n_ctx=25, seed=SEED)
     pred_labels = predict_labels_binary_ood(binary_data.toks)
     assert pred_labels.shape == binary_data.target.shape, "Predicted labels for binary addition should be of shape (size, 8)"
 
@@ -57,7 +52,7 @@ try:
 except ImportError:
     print('No submission for Binary Addition')
 except Exception as e:
-    print('Error during evaluation of Binary Addition submission:', e.with_traceback())
+    raise Exception('Error during evaluation of Binary Addition submission:', e.__traceback__)
 
 
 ### Palindrome Repair Challenge
@@ -84,7 +79,7 @@ try:
     model.eval()
     # model.to('cpu')
 
-    palindrome_data = PalindromeDataset(size=SIZE, d_vocab=34, d_vocab_out=2, n_ctx=22, seq_len=20, seed=SEED)
+    palindrome_data = PalindromeDataset(size=SIZE, d_vocab=34, d_vocab_out=2, n_ctx=22, seed=SEED)
     logits = model(palindrome_data.toks)[:, [-1]]
     pred_labels = logits.argmax(dim=-1)
 
@@ -97,7 +92,7 @@ try:
 except FileNotFoundError:
     print('No submission for Palindrome Repair')
 except Exception as e:
-    print('Error during evaluation of Palindrome Repair submission:', e.with_traceback())
+    raise Exception('Error during evaluation of Palindrome Repair submission:').with_traceback(e.__traceback__)
 
 
 # %%
