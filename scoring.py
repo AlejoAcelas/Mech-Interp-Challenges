@@ -1,8 +1,10 @@
 # %%%
 import sys
 import os
-import torch
 import json
+import re
+import torch
+
 
 # Import the datasets and labeling functions used for evaluation
 # from dataset import KeyValDataset, BinaryAdditionDataset, PalindromeDataset # Secret dataset with the correct labeling function
@@ -60,6 +62,21 @@ except Exception as e:
 try:
     from model import create_model
     state_dict = torch.load(submission_dir + 'palindrome_repair01.pt')
+
+    state_dict = torch.load(submission_dir + 'palindrome_repair01.pt')
+    orig_state_dict = torch.load('palindrome_classifier.pt')
+    
+    for name, param in state_dict.items():
+        assert name in orig_state_dict, f"Submitted model contains parameter {name} not present in the original model"
+        orig_param = orig_state_dict[name]
+        assert param.shape == orig_param.shape, f"Submitted model contains parameter {name} with shape {param.shape} different from the original shape {orig_param.shape}"
+
+        if 'blocks.0' not in name:
+            torch.testing.assert_close(orig_param, param, msg=f"Submitted model altered parameter {name} from its original value")
+        elif re.match('blocks.0.attn.W_(Q|K|O|V)', name):
+            torch.testing.assert_close(orig_param[0], param[0], msg=f"Submitted model altered parameter {name} from H0.0")
+        elif re.match('blocks.0.attn.b_(Q|K|V)', name):
+            torch.testing.assert_close(orig_param[0], param[0], msg=f"Submitted model altered parameter {name} from H0.0")
 
     model = create_model(
         d_vocab=33, # One less than the vocab size to the dataset because the original model did not include a PAD token
