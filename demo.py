@@ -22,7 +22,7 @@ model = create_model(d_vocab=13,
                     base_seed=42,
                     )
 
-state_dict = torch.load("models/keyval_backdoor_999.pt")
+state_dict = torch.load("models/keyval_backdoor_999.pt", map_location=device)
 model.load_state_dict(state_dict)
 
 # %%
@@ -50,7 +50,7 @@ model = create_model(d_vocab=7,
                      base_seed=42,
                      )
 
-state_dict = torch.load("models/binaryadd_ood_1000_reduced.pt")
+state_dict = torch.load("models/binaryadd_ood_1000_reduced.pt", map_location=device)
 model.load_state_dict(state_dict)
 pos_embed = torch.load("models/binaryadd_ood_pos_embed.pt")
 
@@ -84,7 +84,7 @@ model = create_model(
     device=device,
 )
 
-state_dict = torch.load("models/palindrome_repair01.pt")
+state_dict = torch.load("models/palindrome_repair01.pt", map_location=device)
 model.load_state_dict(state_dict)
 
 # %% 
