@@ -57,11 +57,10 @@ class BaseDataset(Dataset):
     def to_str_toks(self, toks: Int[Tensor, 'batch pos'], is_target: bool = False) -> List[List[str]]:
         if is_target:
             # Detect token constants for the target as those attributes that are all uppercase and end with OUT
-            str_tok_map = {x: self.__getattribute__(x) for x in dir(self) if x.isupper() and x.endswith('OUT')}
+            str_tok_map = {self.__getattribute__(x):x[:-4] for x in dir(self) if x.isupper() and x.endswith('OUT')}
         else:
             # Detect token constants for the input as those attributes that are all uppercase and don't end with OUT
-            str_tok_map = {x: self.__getattribute__(x) for x in dir(self) if x.isupper() and not x.endswith('OUT')}
-        
+            str_tok_map = {self.__getattribute__(x):x for x in dir(self) if x.isupper() and not x.endswith('OUT')}
         str_toks = []
         for tok in toks:
             str_tok = [str_tok_map.get(t.item(), str(t.item())) for t in tok]
@@ -101,7 +100,9 @@ class KeyValDataset(BaseDataset):
         if size is not None: # If size is None you can use this class as a data generator
             self.keys = self.gen_basic_seqs(size) # Generate random tokens from the normal vocab
             self.toks = self.cat_values_pad(self.keys) # Pad the keys with start and end tokens
-            self.target = self.compute_target(self.toks) 
+            self.target = self.compute_target(self.toks)
+            self.str_toks = self.to_str_toks(self.toks)
+            self.str_target = self.to_str_toks(self.target, is_target=True)
 
         self.create_tok_methods(self.cat_values_pad) # Creates method `gen_basic_tokens` that calls `gen_basic_keys` and then `cat_values_pad`
 
@@ -124,76 +125,21 @@ class KeyValDataset(BaseDataset):
 # print(data.toks)
 # print(data.gen_basic_toks(5))
 
-
-# %%
-
-class SortedDataset(BaseDataset):
-    """Data for model that classifies whether a list is sorted or not"""
-    
-    def __init__(self, size: int, d_vocab: int = 23, n_ctx: int = 8, d_vocab_out: int = 6, seed: int = 42):
-        super().__init__(size, d_vocab, n_ctx, d_vocab_out, seed)
-        
-        # seq_len for this model is the minimum length of the non-PAD sequence of tokens
-        # Within a single batch the padding will start at random from seq_len to n_ctx  
-        assert n_ctx <= 8 # seq_len + 2 (for the start and end tokens)
-        self.d_vocab_normal = d_vocab - 3 # Vocab that is not used for special tokens
-        self.seq_len = n_ctx - 2 # Positions dedicated to numeric/normal tokens
-
-        if size is not None: # If size is None you can use this class as a data generator
-            self.seqs = torch.cat([
-                self.gen_sorted_seqs(size//3),
-                self.gen_unsorted_seqs(size//3),
-                self.gen_almost_sorted_seqs(size - 2 * (size//3)),
-            ])
-            self.toks = self.cat_start_end_toks(self.seqs)
-            self.target = self.compute_target(self.toks)
-
-        self.create_tok_methods(self.cat_start_end_toks)
-    
-    def compute_target(self, toks: Int[Tensor, 'batch pos']) -> Bool[Tensor, 'batch label=1']:
-        seqs = toks[:, 1:-1]
-        sorted_by_pos = (seqs[:, 1:] >= seqs[:, :-1])
-        first_pos_unsorted = sorted_by_pos.long().argmin(dim=1) # First position where the sequence is not sorted
-        first_pos_unsorted[sorted_by_pos.all(dim=1)] = self.seq_len - 1 # Assign last position to the cases where the first half is completely sorted
-        return first_pos_unsorted.unsqueeze(-1) # Add a trailing one dimension to match the shape of the other datasets
-    
-    def gen_unsorted_seqs(self, batch: int) -> Int[Tensor, 'batch pos']:
-        """This method doesn't ensure that the sequences are unsorted. 
-        It's just likely for big values of d_vocab and n_ctx"""
-        seqs = torch.randint(1, self.d_vocab_normal, (batch, self.seq_len))
-        return seqs
-
-    def gen_sorted_seqs(self, batch: int) -> Int[Tensor, 'batch pos']:
-        seqs = self.gen_unsorted_seqs(batch).sort(dim=-1).values
-        return seqs
-    
-    def gen_almost_sorted_seqs(self, batch: int, num_flips: int = 1) -> Int[Tensor, 'batch pos']:
-        seqs = self.gen_sorted_seqs(batch)
-        flip_pos = torch.randint(0, self.seq_len, (batch, num_flips))
-        flip_val = torch.randint(0, self.d_vocab_normal, (batch, num_flips))
-        seqs[torch.arange(batch)[:, None], flip_pos] = flip_val
-        return seqs
-
-# dataset = SortedDataset(size=10)
-# print(dataset.toks)
-# print(dataset.target)
-
 # %%
 
 class BinaryAdditionDataset(BaseDataset):
     """Data for model that adds two binary numbers and flips the result"""
 
-    def __init__(self, size: int, d_vocab: int = 7, n_ctx: int = 10, d_vocab_out: int = 3, seed: int = 42):
+    def __init__(self, size: int, d_vocab: int = 6, n_ctx: int = 9, d_vocab_out: int = 3, seed: int = 42):
         super().__init__(size, d_vocab, n_ctx, d_vocab_out, seed)
-        assert self.d_vocab == 7, "There must be 7 tokens for the input vocabulary: 0, 1, START, END, PAD, EQUALS, PLUS"
+        assert self.d_vocab == 6, "There must be 6 tokens for the input vocabulary: 0, 1, START, END, PAD, PLUS"
         assert d_vocab_out == 3, "There are only 3 possible outputs: 0, 1, and BLANK"
     
-        self.max_addend_len = (n_ctx - 4) // 3
+        self.max_addend_len = (n_ctx - 2) // 3
         self.target_len = self.max_addend_len + 1 # The length of the target is 8. It corresponds to the largest sum result of the original model
         # Sum results are one position longer than the addend
 
-        self.EQUALS = d_vocab - 4
-        self.PLUS = d_vocab - 5
+        self.PLUS = d_vocab - 4
         self.BLANK_OUT = d_vocab_out - 1
         self.d_vocab_normal = 2
 
@@ -260,13 +206,12 @@ class BinaryAdditionDataset(BaseDataset):
 
         start_pos_a = 1 # Place it after the START token
         start_pos_b = start_pos_a + addend_len + 1
-        start_pos_target = start_pos_b + addend_len + 1
+        start_pos_target = start_pos_b + addend_len
         
         toks[:, 0] = self.START
         toks[:, start_pos_a: start_pos_a + addend_len] = a
         toks[:, start_pos_b - 1] = self.PLUS
         toks[:, start_pos_b: start_pos_b + addend_len] = b
-        toks[:, start_pos_target - 1] = self.EQUALS
         toks[:, start_pos_target: start_pos_target + self.target_len] = self.END
 
         return toks
@@ -292,9 +237,10 @@ class BinaryAdditionDataset(BaseDataset):
         return a.unsqueeze(-1).bitwise_and(mask).ne(0).long()
 
 
-# data = BinaryAdditionDataset(size=10, n_ctx=25)
-# print(data.toks)
+# data = BinaryAdditionDataset(size=10, n_ctx=24)
+# print(data.str_toks)
 # print(data.compute_target(data.toks))
+# print(data.str_target)
 
 # %%
 
@@ -315,6 +261,8 @@ class PalindromeDataset(BaseDataset):
             ])
             self.toks = self.cat_start_end_toks(self.seqs)
             self.target = self.compute_target(self.toks)
+            self.str_toks = self.to_str_toks(self.toks)
+            self.str_target = self.to_str_toks(self.target, is_target=True)
 
     def compute_target(self, toks: Int[Tensor, 'batch pos']) -> Bool[Tensor, 'pos label=1']:
         seqs = toks[:, 1:-1]

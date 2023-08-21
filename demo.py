@@ -33,14 +33,15 @@ logits = model(toks) # [batch, pos, vocab]
 preds = torch.argmax(logits[:, -6:], dim=-1)
 acc = (preds == target.squeeze()).float().mean()
 
+print("Sample string toks: ", data.str_toks[0])
 print(f"The model has an accuracy of {100*acc:.1f}% on this sample")
 
 
 # %% Binary Addition model
 
-model = create_model(d_vocab=7,
+model = create_model(d_vocab=6,
                      d_vocab_out=3,
-                     n_ctx=10,
+                     n_ctx=9,
                      n_layers=3,
                      n_heads=4,
                      d_model=128,
@@ -65,6 +66,7 @@ pred_logits = einops.rearrange(pred_logits, "(batch label) vocab -> batch label 
 preds = torch.argmax(pred_logits, dim=-1)
 acc = (preds == target.squeeze()).float().mean()
 
+print("Sample string toks: ", data.str_toks[0])
 print(f"The model has an accuracy of {100*acc:.1f}% on this sample")
 print(f"The positional embeddings have shape {pos_embed.shape}")
 
@@ -95,6 +97,7 @@ logits = model(toks) # [batch, pos, vocab]
 preds = torch.argmax(logits[:, [-1]], dim=-1)
 acc = (preds == target.squeeze()).float().mean()
 
+print("Sample string toks: ", data.str_toks[0])
 print(f"The model has an accuracy of {100*acc:.1f}% on this sample")
 
 # %%
